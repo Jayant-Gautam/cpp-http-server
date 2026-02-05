@@ -1,3 +1,0 @@
-/home/jayant/Desktop/coding/Project/CMakeFiles/server.dir
-/home/jayant/Desktop/coding/Project/CMakeFiles/edit_cache.dir
-/home/jayant/Desktop/coding/Project/CMakeFiles/rebuild_cache.dir

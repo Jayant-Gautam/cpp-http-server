@@ -4,6 +4,9 @@
 #include <netinet/in.h>
 #include <vector>
 #include "server.hpp"
+#include "response.hpp"
+#include "parseHTTP.hpp"
+
 
 void Server::run()
 {
@@ -60,27 +63,55 @@ void Server::run()
             perror("Accept Error");
             continue;
         }
-
+        string request;
         char buffer[4096]; // as per the standard size of a page -> 4kb(4096 bytes) char size -> 1B
 
-        // reading the request fromt the client
-        recv(socket_client_fd, buffer, sizeof(buffer), 0);
+        // reading till the full request is recieved as tcp transfer data in a stream
+        while(true){
+            // reading the request fromt the client
+            ssize_t n = recv(socket_client_fd, buffer, sizeof(buffer), 0);
+            if(n < 0){
+                perror("Recieving Error : ");
+                break;
+            }
+            if(n == 0) break;
+            request.append(buffer,n);
+            if(request.find("\r\n\r\n") != string::npos) break;
+        }
+
 
         // printing the request recieved from the client
         cout << "Request: " << endl;
-        for (auto it : buffer)
+        for (auto it : request)
         {
             cout << it;
         }
         cout << endl;
 
+        // parsing the request to get the requested path, method and http version
+        string path, method, version;
+        ParseHTTP* parsedRequest = new ParseHTTP(request);
+        path = parsedRequest->getPath();
+        method = parsedRequest->getMethod();
+        version = parsedRequest->getVersion();
+
+
         // sending response to the client
-        string response =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html\r\n"
-            "Content-Length: 68\r\n"
-            "\r\n"
-            "<html><body><h1>Hello from C++ Server</h1></body></html>";
+        string response_body;
+        if(path == "/"){
+            response_body = "<html><body><h1>Hello from C++ Server</h1></body></html>";
+        }
+        else if(path == "/about"){
+            response_body = "<html><body><h1>About Page</h1><p>This is a simple http server implemented in C++ using sockets.</p></body></html>";
+        }
+        else if(path == "/showrequest"){
+            response_body = "<html><body><h1>Request Details</h1><p>Method: " + method + "</p><p>Path: " + path + "</p><p>Version: " + version + "</p></body></html>";
+        }
+        else{
+            response_body = "<html><body><h1>404 Not Found</h1><p>The requested resource was not found on this server.</p></body></html>";
+        }
+
+        string response = Response::getResponse(response_body, 200);
         send(socket_client_fd, response.c_str(), response.size(), 0);
 
         // closing the tcp connection with this->client so that server can listen to another client in the queue
