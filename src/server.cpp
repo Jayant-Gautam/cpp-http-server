@@ -6,6 +6,7 @@
 #include "server.hpp"
 #include "response.hpp"
 #include "parseHTTP.hpp"
+#include "mapRoute.hpp"
 
 
 void Server::run()
@@ -95,24 +96,28 @@ void Server::run()
         method = parsedRequest->getMethod();
         version = parsedRequest->getVersion();
 
-
-        // sending response to the client
-        string response_body;
-        if(path == "/"){
-            response_body = "<html><body><h1>Hello from C++ Server</h1></body></html>";
-        }
-        else if(path == "/about"){
-            response_body = "<html><body><h1>About Page</h1><p>This is a simple http server implemented in C++ using sockets.</p></body></html>";
-        }
-        else if(path == "/showrequest"){
-            response_body = "<html><body><h1>Request Details</h1><p>Method: " + method + "</p><p>Path: " + path + "</p><p>Version: " + version + "</p></body></html>";
-        }
-        else{
-            response_body = "<html><body><h1>404 Not Found</h1><p>The requested resource was not found on this server.</p></body></html>";
+        if(method == "GET"){
+            mapRouteGet(path, &socket_client_fd);
         }
 
-        string response = Response::getResponse(response_body, 200);
-        send(socket_client_fd, response.c_str(), response.size(), 0);
+
+        // // sending response to the client
+        // string response_body;
+        // if(path == "/"){
+        //     response_body = "<html><body><h1>Hello from C++ Server</h1></body></html>";
+        // }
+        // else if(path == "/about"){
+        //     response_body = "<html><body><h1>About Page</h1><p>This is a simple http server implemented in C++ using sockets.</p></body></html>";
+        // }
+        // else if(path == "/showrequest"){
+        //     response_body = "<html><body><h1>Request Details</h1><p>Method: " + method + "</p><p>Path: " + path + "</p><p>Version: " + version + "</p></body></html>";
+        // }
+        // else{
+        //     response_body = "<html><body><h1>404 Not Found</h1><p>The requested resource was not found on this server.</p></body></html>";
+        // }
+
+        // string response = Response::getResponse(response_body, 200);
+        // send(socket_client_fd, response.c_str(), response.size(), 0);
 
         // closing the tcp connection with this->client so that server can listen to another client in the queue
         close(socket_client_fd);

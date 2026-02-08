@@ -4,5 +4,5 @@ using namespace std;
 class Response {
     int statusCode = 200;
 public:
-    static string getResponse(string, int statusCode = 200);
+    static string getResponse(string, int statusCode = 200, string mime_type = "text/html");
 };

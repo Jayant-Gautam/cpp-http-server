@@ -12,6 +12,7 @@ string ParseHTTP::getMethod(){
     return this->method;
 }
 string ParseHTTP::getPath(){
+    if(this->path.find("..") != string::npos) return "/forbidden.html";
     return this->path;
 }
 string ParseHTTP::getVersion(){
