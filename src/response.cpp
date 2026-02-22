@@ -1,9 +1,21 @@
 #include "response.hpp"
 
 string Response::getResponse(string response_body, int statusCode, string mime_type) {
-    string statusText =
-        (statusCode == 200 ? "OK" :
-        (statusCode == 404 ? "Not Found" : "Internal Server Error"));
+    string statusText = "";
+    switch (statusCode) {
+        case 200 : 
+            statusText = "OK";
+            break;
+        case 404 : 
+            statusText = "Not Found";
+            break;
+        case 405 : 
+            statusText = "Method Not Allowed";
+            break;
+        // can add more status codes later
+        default : 
+            statusText = "Internal Server Error";
+    }
 
     string response =
         "HTTP/1.1 " + to_string(statusCode) + " " + statusText + "\r\n"

@@ -11,7 +11,8 @@ string get_mime_type(const string& path) {
     return "application/octet-stream";
 }
 
-bool endsWith(const std::string& str, const std::string& suffix) {
+// helper function to check if a string ends with a given suffix
+bool endsWith(const string& str, const string& suffix) {
     if (str.length() < suffix.length()) return false;
     return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
 }

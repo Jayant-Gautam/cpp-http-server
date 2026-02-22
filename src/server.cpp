@@ -25,7 +25,7 @@ void Server::run()
     // -> sockaddr_in is a struct that contains the address family, ip address and port number
     sockaddr_in *address = new sockaddr_in();
     address->sin_family = AF_INET;
-    address->sin_addr.s_addr = in_addr_t{0X00000000};
+    address->sin_addr.s_addr = in_addr_t{0X00000000}; // ip address for telling the server to recieve request from all ips working on this machine
     address->sin_port = htons(8080);
 
     int socket_bind = bind(socket_fd, (sockaddr *)address, sizeof(*address));
@@ -69,7 +69,7 @@ void Server::run()
 
         // reading till the full request is recieved as tcp transfer data in a stream
         while(true){
-            // reading the request fromt the client
+            // reading the request from the client
             ssize_t n = recv(socket_client_fd, buffer, sizeof(buffer), 0);
             if(n < 0){
                 perror("Recieving Error : ");
@@ -82,42 +82,27 @@ void Server::run()
 
 
         // printing the request recieved from the client
-        cout << "Request: " << endl;
-        for (auto it : request)
-        {
-            cout << it;
-        }
-        cout << endl;
+        // cout << "Request: " << endl;
+        // for (auto it : request)
+        // {
+        //     cout << it;
+        // }
+        // cout << endl;
 
         // parsing the request to get the requested path, method and http version
         string path, method, version;
-        ParseHTTP* parsedRequest = new ParseHTTP(request);
-        path = parsedRequest->getPath();
-        method = parsedRequest->getMethod();
-        version = parsedRequest->getVersion();
+        ParseHTTP parsedRequest = ParseHTTP(request);
+        path = parsedRequest.getPath();
+        method = parsedRequest.getMethod();
+        version = parsedRequest.getVersion();
 
         if(method == "GET"){
-            mapRouteGet(path, &socket_client_fd);
+            mapRouteGet(path, socket_client_fd);
         }
-
-
-        // // sending response to the client
-        // string response_body;
-        // if(path == "/"){
-        //     response_body = "<html><body><h1>Hello from C++ Server</h1></body></html>";
-        // }
-        // else if(path == "/about"){
-        //     response_body = "<html><body><h1>About Page</h1><p>This is a simple http server implemented in C++ using sockets.</p></body></html>";
-        // }
-        // else if(path == "/showrequest"){
-        //     response_body = "<html><body><h1>Request Details</h1><p>Method: " + method + "</p><p>Path: " + path + "</p><p>Version: " + version + "</p></body></html>";
-        // }
-        // else{
-        //     response_body = "<html><body><h1>404 Not Found</h1><p>The requested resource was not found on this server.</p></body></html>";
-        // }
-
-        // string response = Response::getResponse(response_body, 200);
-        // send(socket_client_fd, response.c_str(), response.size(), 0);
+        else{
+            string response = Response::getResponse("Connection closed!", 405, "text/plain");
+            send(socket_client_fd, response.c_str(), response.size(), 0);
+        }
 
         // closing the tcp connection with this->client so that server can listen to another client in the queue
         close(socket_client_fd);
