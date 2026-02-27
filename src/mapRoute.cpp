@@ -8,7 +8,7 @@
 
 using namespace std;
 
-void mapRouteGet(string& path, int socket_client_fd){
+string mapRouteGet(string& path, int socket_client_fd){
     // mapping the path to the file in the www directory
     path = "../www" + path;
     if(path == "../www/")
@@ -32,7 +32,7 @@ void mapRouteGet(string& path, int socket_client_fd){
         response = Response::getResponse(response_body, 200, mime_type);
         file.close();
     }
-
+    return response;
     // cout << response << endl;
-    send(socket_client_fd, response.c_str(), response.size(), 0); // sending the response to the client
+    // send(socket_client_fd, response.c_str(), response.size(), 0); // sending the response to the client
 }
