@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#include "client_type.hpp"
 
 void Server::run()
 {
@@ -66,8 +67,14 @@ void Server::run()
     while (true)
     {
         read_set = master_set; // copy the master set to the read set so that we can monitor the read set for incoming connections and data to be read
-
-        int activity = select(max_fd + 1, &read_set, NULL, NULL, NULL);
+        FD_ZERO(&write_set);
+        for(auto &[fd, client]: clients){
+            if(client.response_ready == true && client.bytes_sent < client.write_buffer.size()){
+                FD_SET(fd, &write_set);
+            }
+        }
+        
+        int activity = select(max_fd + 1, &read_set, &write_set, NULL, NULL);
         if (activity < 0)
         {
             perror("select error : ");
@@ -98,71 +105,143 @@ void Server::run()
                     FD_SET(client_socket_fd, &master_set);
                     if (client_socket_fd > max_fd)
                         max_fd = client_socket_fd; // updating the maximum file discriptor in the master set if the new client socket fd is greater than the current max fd
-                    
                 }
                 else
                 {
-                    handle_client(i); // this means there is data to be read from the client with fd i
+                    handle_client_read(i); // this means there is data to be read from the client with fd i
                 }
             }
+            if(FD_ISSET(i, &write_set)){
+                handle_client_write(i);
+            }
         }
-
     }
     return;
 }
 
-void Server::handle_client(int client_socket_fd)
+void Server::handle_client_read(int client_socket_fd)
 {
-        // reading till the full request is recieved as tcp transfer data in a stream
-        Client &client = clients[client_socket_fd];
-        char buffer[4096]; // as per the standard size of a page -> 4kb(4096 bytes) char size -> 1B
-            // reading the request from the client
-            ssize_t n = recv(client_socket_fd, buffer, sizeof(buffer), 0);
-            if (n < 0)
-            {
-                if(errno == EWOULDBLOCK || errno == EAGAIN){
-                    // this means there is no more data to be read from the client at the moment and we can break the loop and wait for the next activity on this client socket fd in the select loop
-                    return;
-                }
-                perror("Recieving Error : ");
-                close(client_socket_fd);
-                FD_CLR(client_socket_fd, &this->master_set);
-                clients.erase(client_socket_fd);
-                return;
-            }
-            if (n == 0){
-                close(client_socket_fd);
-                FD_CLR(client_socket_fd, &this->master_set);
-                clients.erase(client_socket_fd);
-                return;
-            }
-            client.read_buffer.append(buffer, n);
-            if (client.read_buffer.find("\r\n\r\n") != string::npos){
-                client.header_complete = true;
-            }
-        if(client.header_complete == true){
+    // reading till the full request is recieved as tcp transfer data in a stream
+
+    Client &client = clients[client_socket_fd];
+    if(client.response_ready == true){
+        // this means the response is ready to be sent to the client but the client socket is still in the read set because we have not removed it from the master set yet and we can ignore the read event for this client socket fd until we have sent the full response to the client and closed the connection
+        return;
+    }
+
+    char buffer[4096]; // as per the standard size of a page -> 4kb(4096 bytes) char size -> 1B
+    // reading the request from the client
+    ssize_t n = recv(client_socket_fd, buffer, sizeof(buffer), 0);
+    if (n < 0)
+    {
+        if (errno == EWOULDBLOCK || errno == EAGAIN)
+        {
+            // this means there is no more data to be read from the client at the moment and we can break the loop and wait for the next activity on this client socket fd in the select loop
+            return;
+        }
+        perror("Recieving Error : ");
+        close(client_socket_fd);
+        FD_CLR(client_socket_fd, &this->master_set);
+        clients.erase(client_socket_fd);
+        return;
+    }
+    if (n == 0)
+    {
+        close(client_socket_fd);
+        FD_CLR(client_socket_fd, &this->master_set);
+        clients.erase(client_socket_fd);
+        return;
+    }
+    client.read_buffer.append(buffer, n);
+    if (client.read_buffer.find("\r\n\r\n") != string::npos)
+    {
+        client.header_complete = true;
+    }
+    if (client.header_complete == true)
+    {
+
+        // printing the request
+        cout << "******REQUEST START******" << endl;
+        cout << client.read_buffer << endl;
+        cout << "******REQUEST END******" << endl; 
+
         // parsing the request to get the requested path, method and http version
         string path, method, version;
         ParseHTTP parsedRequest = ParseHTTP(client.read_buffer);
         path = parsedRequest.getPath();
         method = parsedRequest.getMethod();
         version = parsedRequest.getVersion();
+        string connection = parsedRequest.getHeader("Connection");
+        if(version == "HTTP/1.1"){
+            if(connection == "close"){
+                client.keep_alive = false;
+            }
+            else{
+                client.keep_alive = true;
+            }
+        }
+        else{
+            if(connection == "keep-alive"){
+                client.keep_alive = true;
+            }
+            else{
+                client.keep_alive = false;
+            }
+        }
 
         if (method == "GET")
         {
-            client.write_buffer = mapRouteGet(path, client_socket_fd);
-            cout  << client.write_buffer << endl;
-            send(client_socket_fd, client.write_buffer.c_str(), client.write_buffer.size(), 0); // sending the response to the client
+            client.write_buffer = mapRouteGet(path, clients[client_socket_fd]);
+            cout << client.write_buffer << endl;
         }
         else
         {
             string response = Response::getResponse("Connection closed!", 405, "text/plain");
-            send(client_socket_fd, response.c_str(), response.size(), 0);
+            client.write_buffer = response;
         }
 
-        // closing the tcp connection with this->client so that server can listen to another client in the queue
+        client.response_ready = true;
+        client.bytes_sent = 0;
+    }
+}
+
+void Server::handle_client_write(int client_socket_fd){
+    Client &client = clients[client_socket_fd];
+    ssize_t n = send(client_socket_fd, client.write_buffer.c_str() + client.bytes_sent, client.write_buffer.size() - client.bytes_sent, 0);
+    if (n < 0)
+    {
+        if (errno == EWOULDBLOCK || errno == EAGAIN)
+        {
+            // this means the socket is not ready to be written to at the moment and we can break the loop and wait for the next activity on this client socket fd in the select loop
+            return;
+        }
+        perror("Sending Error : ");
         close(client_socket_fd);
         FD_CLR(client_socket_fd, &this->master_set);
         clients.erase(client_socket_fd);
+        return;
     }
+    client.bytes_sent += n;
+    if (client.bytes_sent >= client.write_buffer.size())
+    {
+        // this means the full response has been sent to the client and we can close the connection
+        if(client.keep_alive){
+            reset_client(client);
+            return;
+        }
+        else{
+            close(client_socket_fd);
+            FD_CLR(client_socket_fd, &this->master_set);
+            clients.erase(client_socket_fd);
+        }
+
+    }
+}
+
+void Server::reset_client(Client &client){
+    client.read_buffer.clear();
+    client.write_buffer.clear();
+    client.header_complete = false;
+    client.response_ready = false;
+    client.bytes_sent = 0;
 }

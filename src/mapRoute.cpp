@@ -5,10 +5,12 @@
 #include <netinet/in.h>
 #include <iostream>
 #include "mimeType.hpp"
+#include "server.hpp"
+
 
 using namespace std;
 
-string mapRouteGet(string& path, int socket_client_fd){
+string mapRouteGet(string& path, Client &client_socket){
     // mapping the path to the file in the www directory
     path = "../www" + path;
     if(path == "../www/")
@@ -22,14 +24,14 @@ string mapRouteGet(string& path, int socket_client_fd){
         file.open(path);
         string response_body = string((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
         string mime_type = get_mime_type(path);
-        response = Response::getResponse(response_body, 404, mime_type);
+        response = Response::getResponse(response_body, 404, mime_type, client_socket);
         file.close();
     }
     // if the file is found, send the file content as response
     else{
         string response_body = string((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
         string mime_type = get_mime_type(path);
-        response = Response::getResponse(response_body, 200, mime_type);
+        response = Response::getResponse(response_body, 200, mime_type, client_socket);
         file.close();
     }
     return response;

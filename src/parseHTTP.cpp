@@ -6,6 +6,21 @@ ParseHTTP::ParseHTTP(string& request){
     string request_first_line = request.substr(0, first_line_end);
     istringstream request_stream(request_first_line); // istringstream is a stream class to operate on strings. It allows us to read data from a string as if it were a stream (like cin or file stream).
     request_stream >> this->method >> this->path >> this->version;
+
+    // parsing the headers and storing them in a map for easy access
+    size_t header_start = first_line_end + 2; // +2 to skip the \r\n
+    size_t header_end = request.find("\r\n\r\n"); // headers end with a blank line (\r\n\r\n)
+    string headers_str = request.substr(header_start, header_end - header_start);
+    istringstream headers_stream(headers_str);
+    string header_line;
+    while (getline(headers_stream, header_line)) {
+        size_t delimiter_pos = header_line.find(": ");
+        if (delimiter_pos != string::npos) {
+            string header_key = header_line.substr(0, delimiter_pos);
+            string header_value = header_line.substr(delimiter_pos + 2); // +2 to skip the ": "
+            this->header[header_key] = header_value;
+        }
+    }
 }
 
 string ParseHTTP::getMethod(){
@@ -17,4 +32,7 @@ string ParseHTTP::getPath(){
 }
 string ParseHTTP::getVersion(){
     return this->version;
+}
+string ParseHTTP::getHeader(string header_key){
+    return this->header[header_key];
 }
