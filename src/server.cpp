@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#include <sys/epoll.h>
 #include "client_type.hpp"
 
 void Server::run()
@@ -57,72 +58,79 @@ void Server::run()
     cout << "Server running" << endl
          << "http://localhost:8080" << endl;
 
-    // initializing the master set and adding the socket_fd to it so that server can listen to incoming connections on this socket
-    FD_ZERO(&master_set);
-    FD_SET(socket_fd, &master_set);
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1)
+    {
+        perror("epoll_create1");
+        return;
+    }
 
-    int max_fd = socket_fd; // variable to keep track of the maximum file discriptor in the master set
+    epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = socket_fd;
+
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket_fd, &ev);
+
+    const int max_events = 1024;
+    epoll_event events[max_events];
 
     // creating seperate socket for each client connection
     while (true)
     {
-        read_set = master_set; // copy the master set to the read set so that we can monitor the read set for incoming connections and data to be read
-        FD_ZERO(&write_set);
-        for (auto &[fd, client] : clients)
+        int n = epoll_wait(epoll_fd, events, max_events, -1);
+        if (n == -1)
         {
-            if (!client.write_buffer.empty())
-            {
-                FD_SET(fd, &write_set);
-            }
+            perror("epoll_wait");
+            return;
         }
-
-        int activity = select(max_fd + 1, &read_set, &write_set, NULL, NULL);
-        if (activity < 0)
+        for (int i = 0; i < n; i++)
         {
-            perror("select error : ");
-            continue;
-        }
-        for (int i = 0; i <= max_fd; i++)
-        {
-            if (FD_ISSET(i, &read_set))
-            { // checks whether the ith bit is set or not in the read set
-                if (i == socket_fd)
-                {
-                    // this means there is an incoming connection because listening socket is ready to be read which means there is an incoming connection to be accepted
-                    sockaddr_in client_address{};
-                    socklen_t client_address_len = sizeof(client_address);
-                    sockaddr *client_address_ptr = (sockaddr *)&client_address;
-
-                    int client_socket_fd = accept(socket_fd, client_address_ptr, &client_address_len);
-                    if (client_socket_fd < 0)
-                    {
-                        perror("Accept Error : ");
-                        continue;
-                    }
-                    // making clients non blocking
-                    int flags = fcntl(client_socket_fd, F_GETFL, 0);
-                    fcntl(client_socket_fd, F_SETFL, flags | O_NONBLOCK);
-
-                    cout << "Client connected with fd: " << client_socket_fd << endl;
-                    FD_SET(client_socket_fd, &master_set);
-                    if (client_socket_fd > max_fd)
-                        max_fd = client_socket_fd; // updating the maximum file discriptor in the master set if the new client socket fd is greater than the current max fd
-                }
-                else
-                {
-                    handle_client_read(i); // this means there is data to be read from the client with fd i
-                }
-            }
-            if (FD_ISSET(i, &write_set))
+            int fd = events[i].data.fd;
+            if (fd == socket_fd)
             {
-                handle_client_write(i);
+                // this means there is an incoming connection because listening socket is ready to be read which means there is an incoming connection to be accepted
+                sockaddr_in client_address{};
+                socklen_t client_address_len = sizeof(client_address);
+                sockaddr *client_address_ptr = (sockaddr *)&client_address;
+
+                int client_socket_fd = accept(socket_fd, client_address_ptr, &client_address_len);
+                if (client_socket_fd < 0)
+                {
+                    perror("Accept Error : ");
+                    continue;
+                }
+                // making clients non blocking
+                int flags = fcntl(client_socket_fd, F_GETFL, 0);
+                fcntl(client_socket_fd, F_SETFL, flags | O_NONBLOCK);
+
+                cout << "Client connected with fd: " << client_socket_fd << endl;
+
+                // register in epoll
+                epoll_event ev{};
+                ev.events = EPOLLIN | EPOLLET; // Edge Triggered mode for better performance, we will read all the data from the client socket until there is no more data to be read in one go instead of waiting for the next activity on the client socket fd in the select loop
+                ev.data.fd = client_socket_fd;
+
+                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket_fd, &ev);
+
+                clients[client_socket_fd] = Client();
+            }
+            else
+            {
+                if (events[i].events & EPOLLIN)
+                {
+                    handle_client_read(fd, epoll_fd);
+                }
+                if (events[i].events & EPOLLOUT)
+                {
+                    handle_client_write(fd, epoll_fd);
+                }
             }
         }
     }
     return;
 }
 
-void Server::handle_client_read(int client_socket_fd)
+void Server::handle_client_read(int client_socket_fd, int epoll_fd)
 {
     // reading till the full request is recieved as tcp transfer data in a stream
 
@@ -145,15 +153,15 @@ void Server::handle_client_read(int client_socket_fd)
                 break;
             }
             perror("Recieving Error : ");
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket_fd, nullptr);
             close(client_socket_fd);
-            FD_CLR(client_socket_fd, &this->master_set);
             clients.erase(client_socket_fd);
             return;
         }
         if (n == 0)
         {
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket_fd, nullptr);
             close(client_socket_fd);
-            FD_CLR(client_socket_fd, &this->master_set);
             clients.erase(client_socket_fd);
             return;
         }
@@ -208,6 +216,11 @@ void Server::handle_client_read(int client_socket_fd)
         if (method == "GET")
         {
             client.write_buffer.push(mapRouteGet(path, clients[client_socket_fd]));
+            epoll_event ev{};
+            ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
+            ev.data.fd = client_socket_fd;
+
+            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket_fd, &ev);
             // cout << client.write_buffer << endl;
         }
         else
@@ -218,7 +231,7 @@ void Server::handle_client_read(int client_socket_fd)
     }
 }
 
-void Server::handle_client_write(int client_socket_fd)
+void Server::handle_client_write(int client_socket_fd, int epoll_fd)
 {
     Client &client = clients[client_socket_fd];
     if (client.write_buffer.empty())
@@ -243,10 +256,19 @@ void Server::handle_client_write(int client_socket_fd)
     {
         reset_client(client);
         // this means the full response has been sent to the client and we can close the connection if the client does not want to keep the connection alive or if there is no more response to be sent to the client
+        if (client.write_buffer.empty())
+        {
+            epoll_event ev{};
+            ev.events = EPOLLIN | EPOLLET;
+            ev.data.fd = client_socket_fd;
+
+            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket_fd, &ev);
+        }
+
         if (client.keep_alive == false && client.write_buffer.empty())
         {
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_socket_fd, nullptr);
             close(client_socket_fd);
-            FD_CLR(client_socket_fd, &this->master_set);
             clients.erase(client_socket_fd);
         }
     }
