@@ -5,9 +5,12 @@
 using namespace std;
 #include "client_type.hpp"
 #include "router.hpp"
+#include "multithreading.hpp"
 
 
 class Server {
+    ThreadPool threadPool{10}; // creating a thread pool with 4 worker threads to handle client requests concurrently
+    mutex clients_mutex;
     int port;
     Router router;
     unordered_map<int,Client> clients;

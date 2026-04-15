@@ -41,7 +41,17 @@ Response routeFile(Request& req){
     }
     // if the file is found, send the file content as response
     else{
-        string response_body = string((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+        string response_body;
+        try{
+            response_body = string((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+        }
+        catch(const exception& e){
+            cerr << "Error: " << e.what() << endl;
+            res.statusCode = 500;
+            res.body = "Internal Server Error";
+            res.mime_type = "text/plain";
+            return res;
+        }
         string mime_type = get_mime_type(path);
 
         res.body = response_body;
@@ -58,10 +68,17 @@ bool checkIfFileExists(const string& reqPath){
     string path = "../www" + reqPath;
     if(path == "../www/")
         path = "../www/index.html";
-    ifstream file(path);
-    bool exists = file.is_open();
-    file.close();
-    return exists;
+    try{
+        ifstream file(path);
+        bool exists = file.is_open();
+        file.close();
+        cout << exists << endl;
+        return exists;
+    }
+    catch(const exception& e){
+        cerr << "Error checking file existence: " << e.what() << endl;
+        return false;
+    }
 }
 
 Response dispatch(Request& req, Router& router){

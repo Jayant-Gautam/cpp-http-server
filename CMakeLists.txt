@@ -16,6 +16,8 @@ add_executable(server
     src/parseHTTP.cpp
     src/mapRoute.cpp
     src/mimeType.cpp
+    src/router.cpp
+    src/multithreading.cpp
 )
 
 target_include_directories(server PRIVATE include)

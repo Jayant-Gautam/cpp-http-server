@@ -221,14 +221,19 @@ void Server::handle_client_read(int client_socket_fd, int epoll_fd)
             else
             {
                 // GET request does not have body so we can route it to the handler function immediately
-                string response = routeHandler(req, router);
-                client.write_buffer.push(response);
+                threadPool.enqueue([this, req, client_socket_fd, epoll_fd](){
+                    string response = routeHandler((Request&)req, router);
+                    {
+                        lock_guard<mutex> lock(clients_mutex);
+                        clients[client_socket_fd].write_buffer.push(response);
+                    }
 
-                epoll_event ev{};
-                ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
-                ev.data.fd = client_socket_fd;
+                    epoll_event ev{};
+                    ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
+                    ev.data.fd = client_socket_fd;
 
-                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket_fd, &ev);
+                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket_fd, &ev);
+                });
             }
         }
 
@@ -301,6 +306,7 @@ void Server::handle_client_write(int client_socket_fd, int epoll_fd)
     if (client.bytes_sent == current_response.size())
     {
         reset_client(client);
+        
         // this means the full response has been sent to the client and we can close the connection if the client does not want to keep the connection alive or if there is no more response to be sent to the client
         if (client.write_buffer.empty())
         {
