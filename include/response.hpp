@@ -3,8 +3,8 @@
 #include "client_type.hpp"
 
 using namespace std;
-class Response {
+class Res {
     int statusCode = 200;
 public:
-    static string getResponse(string response_body, int statusCode = 200, string mime_type = "text/html", Client &client_socket = *new Client());
+    static string getResponse(string response_body, int statusCode = 200, string mime_type = "text/html", string connection_header = "close");
 };

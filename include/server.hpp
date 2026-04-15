@@ -4,9 +4,12 @@
 #include <string>
 using namespace std;
 #include "client_type.hpp"
+#include "router.hpp"
 
 
 class Server {
+    int port;
+    Router router;
     unordered_map<int,Client> clients;
     fd_set master_set, read_set, write_set; // set of file discriptors to be monitored for incoming connections and data to be read
     void handle_client_read(int client_socket_fd, int epoll_fd);
@@ -14,4 +17,5 @@ class Server {
     void reset_client(Client &client);
 public:
     void run();
+    Server(int port);
 };

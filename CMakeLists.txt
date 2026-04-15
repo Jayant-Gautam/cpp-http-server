@@ -25,3 +25,7 @@ target_compile_options(server PRIVATE
     -Wextra
     -Wpedantic
 )
+
+find_package(nlohmann_json REQUIRED)
+
+target_link_libraries(server PRIVATE nlohmann_json::nlohmann_json)
